@@ -1,0 +1,73 @@
+#! /usr/bin/env python
+
+import rospy
+from ecn_common.msg import TokenCurrent, TokenRequest
+
+debug = False
+
+class TokenManager:
+    def __init__(self):  
+        # init publisher
+        self.current = TokenCurrent()
+        self.current.left = ''
+        self.current.right = ''
+        self.arm = 'both arm'
+        self.pub = rospy.Publisher('/token_manager/current', TokenCurrent, queue_size=1)
+        
+        self.sub = rospy.Subscriber('token_manager/request', TokenRequest, self.requestCB)
+        self.left = []  # (t0, name, t_last)
+        self.right = []
+                
+    def update(self, name, groups, t):
+        
+        # remove groups that have not checked for a while
+        groups = [g for g in groups if t - g[2] < 2]
+                
+        # update this group with current request
+        names = [g[1] for g in groups]
+        if name in names:
+            idx = names.index(name)
+            groups[idx][2] = t
+        else:
+            groups.append([t, name, t])
+            
+        return groups
+        
+    def requestCB(self, req):
+        
+        # get time
+        t = rospy.Time.now().to_sec()
+
+        # update requests and get latest request from current
+        if req.arm in (0,1):
+            self.left = self.update(req.group, self.left, t)
+            self.current.left = self.left[0][1]
+        if req.arm in (0,2):
+            self.right = self.update(req.group, self.right, t)
+            self.current.right = self.right[0][1]
+            
+        # print summary
+        for group, side in ((self.left, 'left'), (self.right ,'right')):
+            if len(group):
+                msg = side + ': ' + group[0][1]
+                if len(group) > 1:
+                    msg += ', queue = ' + ', '.join([g[1] for g in group[1:]])
+                print(msg)    
+        print('')
+                
+            
+        # publish current tokens
+        self.pub.publish(self.current)
+
+            
+if __name__ == '__main__':
+    '''
+    Begin of main code
+    '''                    
+    rospy.init_node('token_manager')
+    
+    
+    tm = TokenManager()
+        
+    rospy.spin()
+    
